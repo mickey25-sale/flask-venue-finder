@@ -23,7 +23,7 @@ Running Locally
 
 1. Clone this repository:
    
-   git clone YOUR_REPOSITORY_URL
+   git clone https://github.com/mickey25-sale/flask-venue-finder.git
 
 2. Enter the project folder:
    
@@ -49,4 +49,4 @@ Author
 
 Saleh Michael
 
-Computer Science Studentlt
+Computer Science Student.
