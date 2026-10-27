@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Campus Venues</title>
+
+    <!-- Leaflet map styling -->
+    <link
+        rel="stylesheet"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    >
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f4f7f6;
+            color: #222;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: auto;
+        }
+
+        header {
+            background: #b3b001;
+            color: white;
+            padding: 22px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+
+        header h1 {
+            margin-top: 0;
+        }
+
+        .filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        input,
+        select {
+            padding: 12px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            font-size: 15px;
+            flex: 1;
+            min-width: 180px;
+        }
+
+        #loadingStatus {
+            margin: 10px 0;
+            color: #555;
+        }
+
+        #map {
+            height: 400px;
+            width: 100%;
+            border-radius: 10px;
+            border: 1px solid #ccc;
+            margin-bottom: 12px;
+            z-index: 1;
+        }
+
+        .map-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: center;
+            margin: 12px 0 24px;
+            font-size: 14px;
+        }
+
+        .map-legend span {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .legend-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .free {
+            color: green;
+        }
+
+        .occupied {
+            color: red;
+        }
+
+        .unknown {
+            color: #c77700;
+        }
+
+        .legend-dot.free {
+            background: green;
+        }
+
+        .legend-dot.occupied {
+            background: red;
+        }
+
+        .legend-dot.unknown {
+            background: orange;
+        }
+
+        #venueList {
+            display: grid;
+            grid-template-columns: repeat(
+                auto-fit,
+                minmax(240px, 1fr)
+            );
+            gap: 15px;
+        }
+
+        .venue {
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 16px;
+            box-shadow: 0 2px 5px #0000000d;
+        }
+        .venue.selected {
+    border: 2px solid #2563eb;
+    background-color: #eff6ff;
+    box-shadow: 0 0 8px rgba(37, 99, 235, 0.25);
+}
+
+        .venue h3 {
+            margin-top: 0;
+            color: #176b45;
+        }
+
+        .venue p {
+            overflow-wrap: anywhere;
+        }
+
+        .venue-status {
+            font-weight: bold;
+        }
+
+        footer {
+            margin-top: 25px;
+            text-align: center;
+            color: #666;
+            font-size: 13px;
+        }
+
+        @media (max-width: 600px) {
+            body {
+                padding: 12px;
+            }
+
+            #map {
+                height: 320px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+<div class="container">
+
+    <header>
+        <h1>Campus Venues</h1>
+        <p>Find campus venues and check their availability.</p>
+    </header>
+
+    <p id="loadingStatus">Loading venues...</p>
+    <p id="lastChecked">Last checked: Not yet checked</p>
+
+    <!-- Search and status filters -->
+    <div class="filters">
+        <input
+            type="text"
+            id="search"
+            placeholder="Search venue or location..."
+        >
+
+        <select id="statusFilter">
+            <option value="All">All venues</option>
+            <option value="Free">Free</option>
+            <option value="Occupied">Occupied</option>
+            <option value="Unknown">Unknown</option>
+        </select>
+    </div>
+
+    <!-- Interactive map -->
+    <h2>Campus Venue Map</h2>
+    <div id="map"></div>
+
+    <!-- Map legend -->
+    <div class="map-legend">
+        <strong>Venue Status:</strong>
+        <span><i class="legend-dot free"></i> Free</span>
+        <span><i class="legend-dot occupied"></i> Occupied</span>
+        <span><i class="legend-dot unknown"></i> Unknown</span>
+    </div>
+
+    <!-- Venue cards -->
+    <h2>Available Venues</h2>
+    <div id="venueList">
+        {% for venue in venues %}
+        {% set status = venue.get('status', 'Unknown')|trim %}
+        {% set status_class = status if status in ['Free', 'Occupied'] else 'Unknown' %}
+
+        <div class="venue" onclick="focusVenueOnMap(this)" style="cursor: pointer;">
+            <h3>{{ venue.get('venue_name', 'Unnamed venue') }}</h3>
+
+            <p>
+                Location:
+                {{ venue.get('location', 'Not specified') }}
+            </p>
+
+            <p>
+                Status:
+                <span class="venue-status {{ status_class|lower }}">
+                    {{ status }}
+                </span>
+            </p>
+
+            <p>
+                Last updated:
+                {{ venue.get('updated_at', 'Not specified') }}
+            </p>
+        </div>
+        {% endfor %}
+    </div>
+
+    <footer>
+        &copy; {{ current_year }} Campus Venues. All rights reserved.
+    </footer>
+
+</div>
+
+<!-- Load Leaflet before using its map functions -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+    // Create the map centred approximately on the Alupe area.
+    const map = L.map('map').setView([0.50396, 34.12548], 15);
+   
+    L.tileLayer(
+        'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        {
+            attribution: '&copy; OpenStreetMap contributors'
+        }
+    ).addTo(map);
+
+    // Each item contains its Leaflet marker and venue data.
+    const venueMarkers = [];
+
+    // Safely display text supplied by the spreadsheet.
+    function escapeMapText(value) {
+        const element = document.createElement('span');
+        element.textContent = value || 'Not specified';
+        return element.innerHTML;
+    }
+   function focusVenueOnMap(card) {
+    // Remove the highlight from other venue cards
+    document.querySelectorAll("#venueList .venue").forEach(item => {
+        item.classList.remove("selected");
+    });
+
+    // Highlight the clicked venue card
+    card.classList.add("selected");        
+    const heading = card.querySelector("h3");
+    const venueName = heading.textContent.trim();
+
+    const selected = venueMarkers.find(item =>
+        item.venue.venue_name.trim() === venueName
+    );
+
+    if (!selected) {
+        
+        return;
+    }
+
+    map.setView(selected.marker.getLatLng(), 18);
+    selected.marker.openPopup();
+}   
+
+    // Create or refresh the markers from Flask.
+    async function loadVenueMarkers() {
+        try {
+            const response = await fetch('/api/venues');
+
+            if (!response.ok) {
+                throw new Error('Could not load venues');
+            }
+
+            const data = await response.json();
+            console.log('venue data:', data.venues)
+
+            if (!Array.isArray(data.venues)) {
+                throw new Error('Invalid venue data');
+            }
+
+            // Remove existing markers.
+            venueMarkers.forEach(item => {
+                map.removeLayer(item.marker);
+            });
+            venueMarkers.length = 0;
+
+            // Add a marker for each venue with valid coordinates.
+            data.venues.forEach(venue => {
+                const latValue = venue.latitude;
+                const lonValue = venue.longitude;
+                
+
+                if (
+                    latValue == null ||
+                    lonValue == null ||
+                    String(latValue).trim() === '' ||
+                    String(lonValue).trim() === ''
+                ) {
+                    return;
+                }
+
+                const latitude = Number(latValue);
+                const longitude = Number(lonValue);
+
+                if (
+                    !Number.isFinite(latitude) ||
+                    !Number.isFinite(longitude) ||
+                    Math.abs(latitude) > 90 ||
+                    Math.abs(longitude) > 180
+                ) {
+                    return;
+                }
+
+                const status = (venue.status || 'Unknown').trim();
+
+                const markerColor =
+                    status.toLowerCase() === 'free' ? 'green' :
+                    status.toLowerCase() === 'occupied' ? 'red' :
+                    'orange';
+
+                const marker = L.circleMarker(
+                    [latitude, longitude],
+                    {
+                        radius: 9,
+                        color: markerColor,
+                        fillColor: markerColor,
+                        fillOpacity: 0.8
+                    }
+                );
+                marker.addTo(map);
+
+                marker.bindPopup(
+                    '<b>' + escapeMapText(venue.venue_name) + '</b><br>' +
+                    'Location: ' + escapeMapText(venue.location) + '<br>' +
+                    'Status: ' + escapeMapText(status)
+                );
+                marker.addTo(map);
+                venueMarkers.push({
+                    marker: marker,
+                    venue: venue
+                });
+            });
+            console.log('Venues recieved:', data.venues.length);
+            console.log('Markers created:', venueMarkers.length);
+            console.log('First venue:', data.venues[0]);
+
+            // Apply current filters to the refreshed markers.
+            filterVenues();
+
+            // Fit the map around all markers, if available.
+            if (venueMarkers.length > 0) {
+                const markergroup = L.featureGroup(
+                    venueMarkers.map(item => item.marker)
+                );
+
+                map.fitBounds(markergroup.getBounds(), {
+                    padding:[30,30],
+                    maxZoom: 17
+            });
+            }
+
+            console.log(
+                'Venue markers added:',
+                venueMarkers.length
+            );
+
+            document.getElementById('loadingStatus').textContent =
+                'Venues updated successfully.';
+
+            document.getElementById('lastChecked').textContent =
+                'Last checked: ' + new Date().toLocaleTimeString();
+
+        } catch (error) {
+            console.error('Map or venue refresh error:', error);
+
+            document.getElementById('loadingStatus').textContent =
+                'Unable to refresh venues. Check your connection.';
+        }
+    }
+
+    // Filter both venue cards and map markers.
+    function filterVenues() {
+        const searchInput = document.getElementById('search');
+        const statusInput = document.getElementById('statusFilter');
+
+        const searchText = searchInput.value.toLowerCase().trim();
+        const selectedStatus = statusInput.value.toLowerCase();
+
+        // Filter venue cards.
+        const cards = document.querySelectorAll('#venueList .venue');
+
+        cards.forEach(card => {
+            const cardText = card.innerText.toLowerCase();
+
+            const statusElement = card.querySelector('.venue-status');
+            const statusText = statusElement
+                ? statusElement.textContent.toLowerCase().trim()
+                : 'unknown';
+
+            const matchesSearch = cardText.includes(searchText);
+
+            const matchesStatus =
+                selectedStatus === 'all' ||
+                statusText === selectedStatus;
+
+            card.style.display =
+                matchesSearch && matchesStatus ? '' : 'none';
+        });
+
+        // Filter map markers using their associated venue data.
+        venueMarkers.forEach(item => {
+            const venue = item.venue;
+            const marker = item.marker;
+
+            const venueText = (
+                (venue.venue_name || '') + ' ' +
+                (venue.location || '') + ' ' +
+                (venue.status || '') + ' ' +
+                (venue.updated_at || '')
+            ).toLowerCase();
+
+            const venueStatus =
+                (venue.status || 'Unknown').toLowerCase().trim();
+
+            const matchesSearch = venueText.includes(searchText);
+
+            const matchesStatus =
+                selectedStatus === 'all' ||
+                venueStatus === selectedStatus;
+
+            if (matchesSearch && matchesStatus) {
+                if (!map.hasLayer(marker)) {
+                    marker.addTo(map);
+                }
+            } else {
+                if (map.hasLayer(marker)) {
+                    map.removeLayer(marker);
+                }
+            }
+        });
+    }
+
+    // Connect the controls to the filter function.
+    document.getElementById('search')
+        .addEventListener('input', filterVenues);
+
+    document.getElementById('statusFilter')
+        .addEventListener('change', filterVenues);
+
+    // Start loading and refresh every 30 seconds.
+    loadVenueMarkers();
+    setInterval(loadVenueMarkers, 30000);
+</script>
+
+</body>
+</html>
